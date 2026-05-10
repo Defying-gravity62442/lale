@@ -1,0 +1,21 @@
+{
+  "name": "lale",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Chrome extension that verifies math claims in Overleaf via Lean 4 + Claude autoformalization",
+  "scripts": {
+    "dev:ext": "pnpm --filter @lale/extension dev",
+    "build:ext": "pnpm --filter @lale/extension build",
+    "build:shared": "pnpm --filter @lale/shared build",
+    "dev:backend": "cd services/backend && uv run uvicorn lale_backend.api:app --port 8765 --reload",
+    "lean:check": "lean --version"
+  },
+  "engines": {
+    "node": ">=20.10",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "devDependencies": {
+    "@types/node": "^25.6.2"
+  }
+}

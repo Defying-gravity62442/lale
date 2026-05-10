@@ -1,0 +1,33 @@
+node_modules/
+.pnpm-store/
+dist/
+.DS_Store
+.env
+.env.local
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv-cache/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Vite / @crxjs
+.vite/
+build/
+
+# SQLite cache (regenerable)
+services/backend/cache.db
+services/backend/cache.db-journal
+services/backend/cache.db-wal
+services/backend/cache.db-shm
+
+# Editor
+.idea/
+.vscode/
+
+# Claude Code local overrides
+.claude/settings.local.json

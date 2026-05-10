@@ -1,0 +1,9 @@
+name = "lale_lean"
+defaultTargets = ["Lale"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+
+[[lean_lib]]
+name = "Lale"
