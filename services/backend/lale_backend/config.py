@@ -20,6 +20,7 @@ class Settings:
     mathlib_version: str
     translator_model: str
     diagnose_model: str
+    dependency_model: str
     lean_pool_size: int
     lean_timeout_seconds: float
     cache_db_path: Path
@@ -49,6 +50,7 @@ def get_settings() -> Settings:
         mathlib_version=os.getenv("MATHLIB_VERSION", "local"),
         translator_model=os.getenv("TRANSLATOR_MODEL", "claude-sonnet-4-6"),
         diagnose_model=os.getenv("DIAGNOSE_MODEL", "claude-sonnet-4-6"),
+        dependency_model=os.getenv("DEPENDENCY_MODEL", "claude-haiku-4-5-20251001"),
         lean_pool_size=pool_size,
         lean_timeout_seconds=float(os.getenv("LEAN_TIMEOUT_SECONDS", "30")),
         cache_db_path=Path(os.getenv("CACHE_DB_PATH", "./cache.db")).expanduser(),

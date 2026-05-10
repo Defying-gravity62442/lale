@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useStore } from '../store';
 import { Button } from '../components/Button';
 import { ClaimTypePill } from '../components/ClaimTypePill';
 import { StatusBadge } from '../components/StatusBadge';
 import { LatexPreview } from '../components/LatexPreview';
+import { DependencyGraph } from '../components/DependencyGraph';
 
 const LABEL_REF = /\\(?:ref|eqref|cref|Cref)\{([^}]+)\}/g;
 
@@ -12,9 +13,11 @@ export function DependencyView() {
   const claims = useStore((s) => s.claims);
   const selectedId = useStore((s) => s.selectedClaimId);
   const setView = useStore((s) => s.setView);
+  const selectClaim = useStore((s) => s.selectClaim);
   const startVerify = useStore((s) => s.startVerify);
 
   const target = claims.find((c) => c.id === selectedId);
+
   const deps = useMemo(() => {
     if (!target) return [];
     const text = (target.statementLatex ?? '') + '\n' + (target.proofLatex ?? '');
@@ -30,6 +33,11 @@ export function DependencyView() {
     }
     return out;
   }, [claims, target]);
+
+  function handleNodeSelect(id: string) {
+    selectClaim(id);
+    // stays in DependencyView, graph re-renders for new target
+  }
 
   if (!target) {
     return (
@@ -49,6 +57,7 @@ export function DependencyView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <Button size="sm" variant="ghost" onClick={() => setView('main')}>
@@ -70,31 +79,57 @@ export function DependencyView() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="px-4 py-3">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
-            Dependencies ({deps.length})
+        <div className="px-4 py-3 space-y-4">
+          {/* Dependency graph — only shown when there are explicit refs */}
+          {deps.length > 0 ? (
+            <div>
+              <div className="lale-section-label mb-2">Dependency graph</div>
+              <DependencyGraph
+                targetId={target.id}
+                claims={claims}
+                onSelect={handleNodeSelect}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                Click a node to inspect that claim. Arrows show dependency direction (prerequisite → this claim).
+              </p>
+            </div>
+          ) : null}
+
+          {/* Explicit references list */}
+          <div>
+            <div className="lale-section-label">
+              Explicit references ({deps.length})
+            </div>
+            {deps.length === 0 ? (
+              <p className="text-xs text-muted-foreground mb-3">
+                No \ref commands found in this claim's statement or proof.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 mb-3">
+                {deps.map((d) => (
+                  <li key={d.id}>
+                    <button
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-muted/50 hover:bg-accent transition-colors text-left"
+                      onClick={() => handleNodeSelect(d.id)}
+                    >
+                      <ClaimTypePill type={d.type} />
+                      <code className="text-[11px] text-muted-foreground truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
+                        {d.label ?? d.id}
+                      </code>
+                      <StatusBadge status={d.status} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div
+              className="rounded-md p-2.5 text-xs"
+              style={{ backgroundColor: 'var(--status-verifying-bg)', color: 'var(--status-verifying)' }}
+            >
+              <strong>AI dependency extraction:</strong> Additional mathematical dependencies are inferred by the LLM during verification.
+            </div>
           </div>
-          {deps.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No referenced claims. lale will verify this claim directly.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {deps.map((d) => (
-                <li
-                  key={d.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border"
-                >
-                  <ClaimTypePill type={d.type} />
-                  <code className="text-[11px] text-muted-foreground truncate" style={{ fontFamily: 'var(--font-mono)' }}>
-                    {d.label ?? d.id}
-                  </code>
-                  <StatusBadge status={d.status} />
-                  <ChevronRight size={12} className="ml-auto text-muted-foreground" />
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </div>
 
@@ -108,7 +143,7 @@ export function DependencyView() {
           onClick={() => startVerify(target.id)}
           disabled={target.status === 'verifying' || target.status === 'translating'}
         >
-          Verify {deps.length > 0 ? `with ${deps.length} dep${deps.length === 1 ? '' : 's'}` : 'claim'}
+          Verify claim
         </Button>
       </div>
     </div>

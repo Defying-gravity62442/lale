@@ -103,3 +103,39 @@
     border-color: var(--border);
   }
 }
+
+@layer components {
+  /* Repeated section-label pattern: "EXPLICIT REFERENCES", "ROOT CAUSE", etc. */
+  .lale-section-label {
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted-foreground);
+    margin-bottom: 0.375rem;
+  }
+
+  /* Cache hit pill used in verification progress */
+  .lale-cache-pill {
+    font-size: 0.5625rem;
+    font-weight: 600;
+    padding: 0.125rem 0.3125rem;
+    border-radius: 0.25rem;
+    background-color: var(--status-verified-bg);
+    color: var(--status-verified);
+  }
+}
+
+/* Toast animation for settings save feedback */
+@keyframes lale-toast-in {
+  from { opacity: 0; transform: translate(-50%, 0.5rem); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes lale-toast-out {
+  0%   { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.lale-toast {
+  animation: lale-toast-in 0.15s ease-out, lale-toast-out 2s ease-in-out 0.1s forwards;
+}

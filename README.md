@@ -46,8 +46,6 @@ does NOT write `.lean` files into this tree.
 
 ```sh
 cd services/backend
-cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY
 uv sync
 uv run uvicorn lale_backend.api:app --port 8765 --reload
 ```

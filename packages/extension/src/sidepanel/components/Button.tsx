@@ -1,8 +1,10 @@
+import { Loader2 } from 'lucide-react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'destructive';
   size?: 'sm' | 'md';
+  loading?: boolean;
   children: ReactNode;
 }
 
@@ -18,13 +20,14 @@ const SIZE: Record<NonNullable<Props['size']>, string> = {
   md: 'h-9 px-4 text-sm',
 };
 
-export function Button({ variant = 'secondary', size = 'md', className = '', children, ...rest }: Props) {
+export function Button({ variant = 'secondary', size = 'md', loading, className = '', children, disabled, ...rest }: Props) {
   return (
     <button
       className={`inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      disabled={disabled || loading}
       {...rest}
     >
-      {children}
+      {loading ? <Loader2 size={12} className="animate-spin" /> : children}
     </button>
   );
 }

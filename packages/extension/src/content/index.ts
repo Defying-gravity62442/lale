@@ -60,7 +60,7 @@ async function parseAndPush(): Promise<void> {
   const claims = await parseClaims(src);
 
   setDecorations(
-    claims.map((c) => ({ claimId: c.id, line: c.startLine, status: c.status })),
+    claims.map((c) => ({ claimId: c.id, label: c.label, line: c.startLine, status: c.status })),
   );
 
   const snapshotMessage: ContentMessage = {

@@ -42,6 +42,10 @@ interface InflightEntry {
   startedAt: number;
 }
 
+// In-memory only: AbortControllers for active fetches. Meaningless after service-worker death
+// (the fetch dies with the worker), so no need to persist.
+const inflightAborts = new Map<string, AbortController>();
+
 // ---------- Storage helpers ----------
 
 async function getSettings(): Promise<Settings> {
@@ -186,6 +190,8 @@ async function handlePortRequest(port: chrome.runtime.Port, req: PortRequest): P
     return;
   }
   if (req.type === 'cancelVerification') {
+    inflightAborts.get(req.requestId)?.abort();
+    inflightAborts.delete(req.requestId);
     await removeInflight(req.requestId);
     return;
   }
@@ -211,7 +217,11 @@ async function startVerification(tabId: number, targetClaimId: string, claims: C
   // Update content-script gutter optimistically: target -> verifying.
   await pushStatusToContent(tabId, targetClaimId, 'verifying');
 
+  const controller = new AbortController();
+  inflightAborts.set(requestId, controller);
+
   const url = new URL('/verify_paper', settings.backendUrl);
+  console.log('[lale] startVerification →', url.toString(), { requestId, targetClaimId, claimCount: claims.length });
   try {
     const res = await fetch(url.toString(), {
       method: 'POST',
@@ -223,7 +233,9 @@ async function startVerification(tabId: number, targetClaimId: string, claims: C
         leanVersion: '4.13.0',
         mathlibVersion: 'local',
       }),
+      signal: controller.signal,
     });
+    console.log('[lale] verify_paper response', res.status, res.statusText);
     if (!res.ok || !res.body) {
       postToPanel({
         type: 'error',
@@ -234,11 +246,16 @@ async function startVerification(tabId: number, targetClaimId: string, claims: C
     }
     await consumeSse(res.body, tabId, requestId);
   } catch (err) {
-    postToPanel({
-      type: 'error',
-      message: `Backend unreachable at ${settings.backendUrl}: ${(err as Error).message}`,
-    });
+    console.error('[lale] verify_paper fetch error', err);
+    if ((err as Error).name !== 'AbortError') {
+      postToPanel({
+        type: 'error',
+        message: `Backend unreachable at ${settings.backendUrl}: ${(err as Error).message}`,
+      });
+    }
     await removeInflight(requestId);
+  } finally {
+    inflightAborts.delete(requestId);
   }
 }
 
@@ -246,18 +263,24 @@ async function consumeSse(body: ReadableStream<Uint8Array>, tabId: number, reque
   const reader = body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buf = '';
+  let chunkCount = 0;
+  console.log('[lale] consumeSse started', requestId);
   while (true) {
     const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    if (done) { console.log('[lale] consumeSse stream done', { chunkCount }); break; }
+    chunkCount++;
+    const text = decoder.decode(value, { stream: true });
+    console.log('[lale] SSE chunk #' + chunkCount, JSON.stringify(text.slice(0, 200)));
+    buf += text;
     const events = parseSseChunks(buf);
     buf = events.tail;
     for (const ev of events.events) {
       try {
         const parsed = JSON.parse(ev) as SseEvent;
+        console.log('[lale] SSE event', parsed.type, parsed);
         await handleSseEvent(tabId, parsed);
-      } catch {
-        /* ignore malformed */
+      } catch (e) {
+        console.warn('[lale] malformed SSE chunk', ev, e);
       }
     }
   }
@@ -266,7 +289,7 @@ async function consumeSse(body: ReadableStream<Uint8Array>, tabId: number, reque
 
 function parseSseChunks(buf: string): { events: string[]; tail: string } {
   const out: string[] = [];
-  const parts = buf.split('\n\n');
+  const parts = buf.replace(/\r\n/g, '\n').split('\n\n');
   const tail = parts.pop() ?? '';
   for (const block of parts) {
     const dataLines: string[] = [];

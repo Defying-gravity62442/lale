@@ -40,6 +40,7 @@ interface State {
   setView: (v: View) => void;
   selectClaim: (id: string | null) => void;
   startVerify: (claimId: string) => void;
+  cancelVerify: () => void;
   setSettings: (s: Settings) => void;
   applySse: (ev: SseEvent) => void;
   receiveSnapshot: (claims: Claim[]) => void;
@@ -143,6 +144,14 @@ export const useStore = create<State>((set, get) => {
       set({ view: 'verifying', selectedClaimId: claimId, errorMessage: null });
       persist(get());
       send({ type: 'verifyClaim', claimId });
+    },
+    cancelVerify: () => {
+      const { activeRequestId } = get();
+      if (activeRequestId) {
+        send({ type: 'cancelVerification', requestId: activeRequestId });
+      }
+      set({ view: 'main', activeRequestId: null });
+      persist(get());
     },
     setSettings: (s) => {
       set({ settings: s });

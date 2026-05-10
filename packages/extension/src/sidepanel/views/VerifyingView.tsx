@@ -1,145 +1,72 @@
-import { useMemo, useRef, useEffect, useState } from 'react';
-import { Loader2, Check, X, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Loader2, X } from 'lucide-react';
 import { useStore } from '../store';
 import { ClaimTypePill } from '../components/ClaimTypePill';
 import { StatusBadge } from '../components/StatusBadge';
-import type { Claim, SseEvent } from '@lale/shared';
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function shortId(claims: Claim[], id: string): string {
-  const c = claims.find((x) => x.id === id);
-  return c?.label ?? id;
-}
-
-const ROOT_CAUSE_LABEL: Record<string, string> = {
-  unknownIdentifier: 'unknown identifier',
-  typeMismatch: 'type mismatch',
-  tacticFailed: 'tactic failed',
-  timeout: 'timed out',
-  malformedJson: 'translation failed',
-  other: 'error',
-};
-
-const VERDICT_LABEL: Record<string, string> = {
-  mathlib_candidate: 'Mathlib candidate ★',
-  project_local: 'project-local',
-  duplicate_likely: 'likely duplicate',
-  needs_generalization: 'needs generalization',
-  not_worth_submitting: 'not for Mathlib',
-  unsure: 'unsure',
-  skipped: 'skipped',
-};
-
-// ── log entry types ───────────────────────────────────────────────────────────
-
-type LogKind = 'translating' | 'verifying' | 'verified' | 'failed' | 'info' | 'analysis';
-
-interface LogEntry {
-  key: string;
-  kind: LogKind;
-  message: string;
-  sub?: string;
-  lean?: string;
-}
-
-function toLogEntries(events: SseEvent[], claims: Claim[]): LogEntry[] {
-  const out: LogEntry[] = [];
-  let i = 0;
-  for (const ev of events) {
-    const k = String(i++);
-
-    if (ev.type === 'orchestratorStarted') {
-      const n = ev.plan.reduce((s, l) => s + l.claimIds.length, 0);
-      const lvls = ev.plan.length;
-      out.push({
-        key: k,
-        kind: 'info',
-        message: `Plan: ${n} claim${n !== 1 ? 's' : ''} across ${lvls} level${lvls !== 1 ? 's' : ''}`,
-      });
-
-    } else if (ev.type === 'claimStatus') {
-      const name = shortId(claims, ev.claimId);
-
-      if (ev.status === 'translating') {
-        if (!ev.detail) {
-          out.push({ key: k, kind: 'translating', message: `Translating ${name}`, sub: 'LaTeX → Lean 4 via Claude' });
-        } else if (ev.detail === 'retrieving local Mathlib context') {
-          out.push({ key: k, kind: 'translating', message: `Searching Mathlib`, sub: `looking up lemmas for ${name}` });
-        } else if (ev.detail.startsWith('retry after ')) {
-          const err = ev.detail.replace('retry after ', '');
-          out.push({ key: k, kind: 'translating', message: `Retrying ${name}`, sub: ROOT_CAUSE_LABEL[err] ?? err });
-        } else {
-          out.push({ key: k, kind: 'translating', message: name, sub: ev.detail });
-        }
-      } else if (ev.status === 'verifying') {
-        if (ev.detail === 'semantic review') {
-          out.push({ key: k, kind: 'verifying', message: `Semantic review`, sub: `checking ${name} for faithfulness` });
-        } else {
-          const sub = ev.detail ?? 'Lean 4 type-checker';
-          out.push({ key: k, kind: 'verifying', message: `Running Lean 4 on ${name}`, sub });
-        }
-      }
-
-    } else if (ev.type === 'claimVerified') {
-      const name = shortId(claims, ev.claimId);
-      const time = ev.elapsedMs > 0 ? `${(ev.elapsedMs / 1000).toFixed(1)}s` : null;
-      out.push({
-        key: k,
-        kind: 'verified',
-        message: `${name} verified`,
-        sub: ev.cacheHit ? 'cache hit' : time ?? undefined,
-      });
-
-    } else if (ev.type === 'claimFailed') {
-      const name = shortId(claims, ev.claimId);
-      out.push({
-        key: k,
-        kind: 'failed',
-        message: `${name} failed`,
-        sub: ROOT_CAUSE_LABEL[ev.rootCauseCategory] ?? 'error',
-        lean: ev.leanOutput ?? undefined,
-      });
-
-    } else if (ev.type === 'mathlibWorthiness') {
-      const verdict = VERDICT_LABEL[ev.verdict] ?? ev.verdict;
-      const conf = Math.round(ev.confidence * 100);
-      out.push({
-        key: k,
-        kind: 'analysis',
-        message: `Mathlib: ${verdict}`,
-        sub: `${conf}% confidence — ${ev.reason.slice(0, 90)}${ev.reason.length > 90 ? '…' : ''}`,
-      });
-    }
-  }
-  return out;
-}
-
-// ── per-claim live status for plan overview ───────────────────────────────────
-
-function buildClaimLive(events: SseEvent[]): Map<string, { status: string; detail?: string; cacheHit?: boolean }> {
-  const m = new Map<string, { status: string; detail?: string; cacheHit?: boolean }>();
-  for (const ev of events) {
-    if (ev.type === 'claimStatus') {
-      m.set(ev.claimId, { status: ev.status, detail: ev.detail ?? undefined });
-    } else if (ev.type === 'claimVerified') {
-      m.set(ev.claimId, { status: 'verified', cacheHit: ev.cacheHit });
-    } else if (ev.type === 'claimFailed') {
-      m.set(ev.claimId, { status: 'failed' });
-    }
-  }
-  return m;
-}
+import type { Claim } from '@lale/shared';
 
 // ── main component ────────────────────────────────────────────────────────────
+
+const PLAN_STEPS = [
+  { id: 'extract', label: 'Extracting dependencies' },
+  { id: 'plan', label: 'Building verification plan' },
+  { id: 'verify', label: 'Verifying with Lean' },
+];
+
+const CLAIM_STATUS_LABEL: Record<string, string> = {
+  translating: 'Translating to Lean…',
+  verifying: 'Type-checking…',
+  verified: 'Verified',
+  failed: 'Failed',
+  sorry: 'Sorry (axiom placeholder)',
+  unverified: 'Queued',
+};
+
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 export function VerifyingView() {
   const requestId = useStore((s) => s.activeRequestId);
   const byRequest = useStore((s) => s.byRequest);
   const claims = useStore((s) => s.claims);
+  const cancelVerify = useStore((s) => s.cancelVerify);
+  const errorMessage = useStore((s) => s.errorMessage);
+
+  const [cancelling, setCancelling] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [showLog, setShowLog] = useState(false);
+  const mountedAt = useRef(Date.now());
 
   const run = requestId ? byRequest[requestId] : undefined;
-  const target = claims.find((c) => c.id === run?.targetClaimId);
+  const target = claims.find((c: Claim) => c.id === run?.targetClaimId);
+
+  useEffect(() => {
+    mountedAt.current = Date.now();
+    setElapsed(0);
+    setCancelling(false);
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - mountedAt.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [requestId]);
+
+  const perClaim = useMemo(() => {
+    const out = new Map<string, { status: string; lastDetail?: string; cacheHit?: boolean }>();
+    if (!run) return out;
+    for (const ev of run.events) {
+      if (ev.type === 'claimStatus') {
+        out.set(ev.claimId, { status: ev.status, lastDetail: ev.detail });
+      } else if (ev.type === 'claimVerified') {
+        out.set(ev.claimId, { status: 'verified', cacheHit: ev.cacheHit });
+      } else if (ev.type === 'claimFailed') {
+        out.set(ev.claimId, { status: 'failed' });
+      }
+    }
+    return out;
+  }, [run]);
 
   const plan = useMemo(() => {
     if (!run) return [];
@@ -148,174 +75,223 @@ export function VerifyingView() {
     return [];
   }, [run]);
 
-  const allPlanIds = useMemo(() => plan.flatMap((l) => l.claimIds), [plan]);
+  const allClaimIds = useMemo(() => plan.flatMap((l) => l.claimIds), [plan]);
 
-  const claimLive = useMemo(() => buildClaimLive(run?.events ?? []), [run]);
+  const doneCount = useMemo(() => {
+    let n = 0;
+    for (const id of allClaimIds) {
+      const st = perClaim.get(id)?.status;
+      if (st === 'verified' || st === 'failed' || st === 'sorry') n++;
+    }
+    return n;
+  }, [allClaimIds, perClaim]);
 
-  const doneCount = useMemo(
-    () => allPlanIds.filter((id) => ['verified', 'failed'].includes(claimLive.get(id)?.status ?? '')).length,
-    [allPlanIds, claimLive],
-  );
+  const progressPct = allClaimIds.length > 0 ? (doneCount / allClaimIds.length) * 100 : 0;
 
-  const logEntries = useMemo(() => toLogEntries(run?.events ?? [], claims), [run, claims]);
+  const eventCount = run?.events.length ?? 0;
+  const activeStep = eventCount === 0 ? 0 : 1;
 
-  // Auto-scroll to bottom as log grows.
-  const logRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logEntries.length]);
-
-  const [expandedLean, setExpandedLean] = useState<Set<string>>(new Set());
-  const toggleLean = (key: string) =>
-    setExpandedLean((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
+  function handleCancel() {
+    setCancelling(true);
+    cancelVerify();
+  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-card shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <Loader2 size={13} className="animate-spin" style={{ color: 'var(--status-verifying)' }} />
-            <h2 className="font-semibold text-sm">Verifying</h2>
-          </div>
-          {allPlanIds.length > 1 && (
-            <span className="text-[10px] text-muted-foreground">
-              {doneCount} / {allPlanIds.length} done
-            </span>
-          )}
+        <div className="flex items-center gap-2 mb-2">
+          <Loader2 size={14} className="animate-spin shrink-0" style={{ color: 'var(--status-verifying)' }} />
+          <h2 className="font-semibold text-sm flex-1">Verifying</h2>
+          <span className="text-[11px] text-muted-foreground tabular-nums font-mono">
+            {formatElapsed(elapsed)}
+          </span>
+          <button
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 ml-1"
+            title="Cancel verification"
+          >
+            <X size={12} />
+            {cancelling ? 'Cancelling…' : 'Cancel'}
+          </button>
         </div>
-        {target && (
-          <div className="flex items-center gap-2">
+
+        {target ? (
+          <div className="flex items-center gap-2 mb-2">
             <ClaimTypePill type={target.type} />
             <code className="text-[11px] text-muted-foreground truncate" style={{ fontFamily: 'var(--font-mono)' }}>
               {target.label ?? target.id}
             </code>
           </div>
-        )}
+        ) : null}
+
+        {allClaimIds.length > 0 ? (
+          <div className="mt-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted-foreground">
+                {doneCount} / {allClaimIds.length} claims
+              </span>
+            </div>
+            <div className="h-1 w-full rounded-full overflow-hidden" style={{ backgroundColor: 'var(--muted)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%`, backgroundColor: 'var(--status-verifying)' }}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {/* ── Plan overview (only when multiple claims) ── */}
-      {allPlanIds.length > 1 && (
-        <div className="px-4 py-2 border-b border-border shrink-0 space-y-1">
-          {allPlanIds.map((cid) => {
-            const cl = claims.find((c) => c.id === cid);
-            const live = claimLive.get(cid);
-            return (
-              <div key={cid} className="flex items-center gap-2">
-                <StatusBadge status={(live?.status ?? 'unverified') as never} />
-                {cl && <ClaimTypePill type={cl.type} />}
-                <code className="text-[10px] text-muted-foreground truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
-                  {cl?.label ?? cid}
-                </code>
-                {live?.detail && (
-                  <span className="text-[9px] text-muted-foreground/60 shrink-0 italic">{live.detail}</span>
-                )}
-                {live?.cacheHit && (
-                  <span className="text-[9px] text-muted-foreground/60 shrink-0">cache</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto">
+        {errorMessage ? (
+          <div className="mx-4 mt-4 px-3 py-2 rounded-md text-[11px] break-all" style={{ backgroundColor: 'var(--status-failed-bg)', color: 'var(--status-failed)', fontFamily: 'var(--font-mono)' }}>
+            {errorMessage}
+          </div>
+        ) : null}
 
-      {/* ── Activity log ── */}
-      <div ref={logRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
-        {logEntries.length === 0 ? (
-          <div className="flex items-center gap-2 px-1 py-2 text-[11px] text-muted-foreground">
-            <span
-              className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0"
-              style={{ backgroundColor: 'var(--status-verifying)' }}
-            />
-            Waiting for backend…
+        {plan.length === 0 ? (
+          <div className="px-4 py-5 space-y-4">
+            {/* 3-step skeleton while plan is building */}
+            <div className="space-y-3">
+              {PLAN_STEPS.map((step, i) => {
+                const isActive = i === activeStep;
+                const isDone = i < activeStep;
+                return (
+                  <div key={step.id} className="flex items-center gap-3">
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                      style={{
+                        backgroundColor: isActive ? 'var(--status-verifying-bg)' : isDone ? 'var(--status-verified-bg)' : 'var(--muted)',
+                      }}
+                    >
+                      {isActive ? (
+                        <Loader2 size={10} className="animate-spin" style={{ color: 'var(--status-verifying)' }} />
+                      ) : isDone ? (
+                        <span className="text-[8px] font-bold" style={{ color: 'var(--status-verified)' }}>✓</span>
+                      ) : (
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--muted-foreground)', opacity: 0.4 }} />
+                      )}
+                    </div>
+                    <span
+                      className="text-xs transition-opacity"
+                      style={{
+                        color: isActive ? 'var(--foreground)' : 'var(--muted-foreground)',
+                        opacity: isActive ? 1 : isDone ? 0.7 : 0.4,
+                      }}
+                    >
+                      {step.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Debug log — collapsed by default */}
+            <div>
+              <button
+                onClick={() => setShowLog((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span
+                  className="inline-block transition-transform"
+                  style={{ transform: showLog ? 'rotate(90deg)' : 'none' }}
+                >
+                  ▶
+                </span>
+                Debug log ({eventCount} events)
+              </button>
+              {showLog ? (
+                <ul className="mt-1.5 max-h-40 overflow-y-auto space-y-0.5 text-[10px] text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
+                  {run && run.events.length > 0 ? (
+                    run.events.map((ev, i) => (
+                      <li key={i} className="truncate">
+                        {ev.type}
+                        {'claimId' in ev ? ` · ${(ev as { claimId: string }).claimId.slice(0, 10)}` : ''}
+                        {'status' in ev ? ` · ${(ev as { status: string }).status}` : ''}
+                      </li>
+                    ))
+                  ) : (
+                    <li>no events yet — is the backend running?</li>
+                  )}
+                </ul>
+              ) : null}
+            </div>
           </div>
         ) : (
-          logEntries.map((entry) => (
-            <LogRow
-              key={entry.key}
-              entry={entry}
-              expanded={expandedLean.has(entry.key)}
-              onToggle={() => toggleLean(entry.key)}
-            />
-          ))
+          <div className="px-4 py-3 space-y-4">
+            {plan.map((level) => (
+              <div key={level.level}>
+                <div className="lale-section-label">
+                  {level.level === 0 ? 'Foundations' : `Level ${level.level}`}
+                </div>
+                <ul className="space-y-1.5">
+                  {level.claimIds.map((cid) => {
+                    const cl = claims.find((c: Claim) => c.id === cid);
+                    const info = perClaim.get(cid);
+                    const st = info?.status ?? 'unverified';
+                    const isActive = st === 'translating' || st === 'verifying';
+                    return (
+                      <li
+                        key={cid}
+                        className="flex flex-col gap-1 px-2.5 py-2 rounded-md border border-border transition-colors"
+                        style={{ backgroundColor: isActive ? 'var(--status-verifying-bg)' : 'transparent' }}
+                      >
+                        <div className="flex items-center gap-2">
+                          {cl ? <ClaimTypePill type={cl.type} /> : null}
+                          <code className="text-[11px] truncate flex-1" style={{ fontFamily: 'var(--font-mono)' }}>
+                            {cl?.label ?? cid.slice(0, 14)}
+                          </code>
+                          {info?.cacheHit ? (
+                            <span className="lale-cache-pill" title="Loaded from cache — saved ~30 s">
+                              cached
+                            </span>
+                          ) : null}
+                          <StatusBadge status={st as never} />
+                        </div>
+                        {isActive ? (
+                          <p className="text-[10px] pl-1" style={{ color: 'var(--status-verifying)' }}>
+                            {CLAIM_STATUS_LABEL[st] ?? st}
+                          </p>
+                        ) : info?.lastDetail ? (
+                          <p className="text-[10px] text-muted-foreground pl-1">{info.lastDetail}</p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+
+            {/* Debug log — collapsed by default */}
+            <div className="pt-1">
+              <button
+                onClick={() => setShowLog((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span
+                  className="inline-block transition-transform"
+                  style={{ transform: showLog ? 'rotate(90deg)' : 'none' }}
+                >
+                  ▶
+                </span>
+                Debug log ({run?.events.length ?? 0} events)
+              </button>
+              {showLog ? (
+                <ul className="mt-1.5 max-h-40 overflow-y-auto space-y-0.5 text-[10px] text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
+                  {run?.events.map((ev, i) => (
+                    <li key={i} className="truncate">
+                      {ev.type}
+                      {'claimId' in ev ? ` · ${(ev as { claimId: string }).claimId.slice(0, 10)}` : ''}
+                      {'status' in ev ? ` · ${(ev as { status: string }).status}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── LogRow ────────────────────────────────────────────────────────────────────
-
-const KIND_COLOR: Record<LogKind, string> = {
-  translating: '#8b5cf6',
-  verifying: 'var(--status-verifying)',
-  verified: 'var(--status-verified)',
-  failed: 'var(--status-failed)',
-  info: 'var(--muted-foreground)',
-  analysis: 'var(--muted-foreground)',
-};
-
-function LogRow({ entry, expanded, onToggle }: { entry: LogEntry; expanded: boolean; onToggle: () => void }) {
-  const { kind, message, sub, lean } = entry;
-  const color = KIND_COLOR[kind];
-
-  const icon =
-    kind === 'translating' ? (
-      <span className="w-1.5 h-1.5 rounded-full shrink-0 mt-1 animate-pulse" style={{ backgroundColor: color }} />
-    ) : kind === 'verifying' ? (
-      <Loader2 size={11} className="animate-spin shrink-0 mt-0.5" style={{ color }} />
-    ) : kind === 'verified' ? (
-      <Check size={11} className="shrink-0 mt-0.5" style={{ color }} />
-    ) : kind === 'failed' ? (
-      <X size={11} className="shrink-0 mt-0.5" style={{ color }} />
-    ) : kind === 'analysis' ? (
-      <Sparkles size={11} className="shrink-0 mt-0.5" style={{ color }} />
-    ) : (
-      <span className="w-1 h-1 rounded-full shrink-0 mt-1.5 bg-muted-foreground/40" />
-    );
-
-  return (
-    <div>
-      <div className="flex items-start gap-2 text-[11px]">
-        {icon}
-        <div className="flex-1 min-w-0">
-          <span className="font-medium" style={{ color }}>
-            {message}
-          </span>
-          {sub && (
-            <span className="text-muted-foreground/70"> — {sub}</span>
-          )}
-          {lean && (
-            <button
-              onClick={onToggle}
-              className="ml-1.5 inline-flex items-center gap-0.5 text-muted-foreground/50 hover:text-muted-foreground"
-            >
-              {expanded ? <ChevronDown size={9} /> : <ChevronRight size={9} />}
-              <span className="text-[9px]">lean output</span>
-            </button>
-          )}
-        </div>
-      </div>
-      {lean && expanded && (
-        <pre
-          className="ml-5 mt-1 px-2 py-2 rounded text-[10px] overflow-x-auto overflow-y-auto"
-          style={{
-            fontFamily: 'var(--font-mono)',
-            backgroundColor: 'color-mix(in srgb, var(--status-failed) 8%, transparent)',
-            color: 'var(--status-failed)',
-            maxHeight: '10rem',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}
-        >
-          {lean}
-        </pre>
-      )}
     </div>
   );
 }

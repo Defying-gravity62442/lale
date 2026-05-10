@@ -93,6 +93,17 @@ class Cache:
                     PRIMARY KEY (lean_hash, deps_hash, lean_version, mathlib_version)
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS dependency (
+                    target_hash TEXT NOT NULL,
+                    prev_hash TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    deps_json TEXT NOT NULL,
+                    bytes INTEGER NOT NULL,
+                    last_used_at REAL NOT NULL,
+                    PRIMARY KEY (target_hash, prev_hash, model)
+                )
+            """)
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Cursor]:
@@ -237,18 +248,56 @@ class Cache:
             )
         self._evict_if_needed()
 
+    # ---------- Dependency cache ----------
+
+    def get_dependency(
+        self, target_hash: str, prev_hash: str, model: str
+    ) -> list[str] | None:
+        row = self._conn.execute(
+            """SELECT deps_json FROM dependency
+            WHERE target_hash = ? AND prev_hash = ? AND model = ? LIMIT 1""",
+            (target_hash, prev_hash, model),
+        ).fetchone()
+        if not row:
+            return None
+        self._conn.execute(
+            """UPDATE dependency SET last_used_at = ?
+            WHERE target_hash = ? AND prev_hash = ? AND model = ?""",
+            (time.time(), target_hash, prev_hash, model),
+        )
+        return json.loads(row[0])
+
+    def put_dependency(
+        self,
+        target_hash: str,
+        prev_hash: str,
+        model: str,
+        deps: list[str],
+    ) -> None:
+        deps_json = json.dumps(deps)
+        size = len(deps_json)
+        with self._tx() as cur:
+            cur.execute(
+                """INSERT OR REPLACE INTO dependency
+                (target_hash, prev_hash, model, deps_json, bytes, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (target_hash, prev_hash, model, deps_json, size, time.time()),
+            )
+        self._evict_if_needed()
+
     # ---------- Eviction ----------
 
     def _total_bytes(self) -> int:
         a = self._conn.execute("SELECT COALESCE(SUM(bytes), 0) FROM translation").fetchone()[0]
         b = self._conn.execute("SELECT COALESCE(SUM(bytes), 0) FROM verification").fetchone()[0]
-        return int(a) + int(b)
+        c = self._conn.execute("SELECT COALESCE(SUM(bytes), 0) FROM dependency").fetchone()[0]
+        return int(a) + int(b) + int(c)
 
     def _evict_if_needed(self) -> None:
         total = self._total_bytes()
         if total <= self.max_bytes:
             return
-        # Trim by LRU across both tables. Pick the older of the two oldest rows until under budget.
+        # Trim by LRU across all tables.
         with self._tx() as cur:
             while total > self.max_bytes:
                 t = cur.execute(
@@ -259,11 +308,26 @@ class Cache:
                     "SELECT lean_hash, last_used_at, bytes FROM verification "
                     "ORDER BY last_used_at LIMIT 1"
                 ).fetchone()
-                if not t and not v:
+                d = cur.execute(
+                    "SELECT target_hash, prev_hash, last_used_at, bytes FROM dependency "
+                    "ORDER BY last_used_at LIMIT 1"
+                ).fetchone()
+                
+                candidates = []
+                if t: candidates.append(('translation', t[1], t[2], t[0]))
+                if v: candidates.append(('verification', v[1], v[2], v[0]))
+                if d: candidates.append(('dependency', d[2], d[3], (d[0], d[1])))
+                
+                if not candidates:
                     break
-                if t and (not v or t[1] <= v[1]):
-                    cur.execute("DELETE FROM translation WHERE norm_hash = ?", (t[0],))
-                    total -= int(t[2])
+                
+                oldest = min(candidates, key=lambda x: x[1])
+                
+                if oldest[0] == 'translation':
+                    cur.execute("DELETE FROM translation WHERE norm_hash = ?", (oldest[3],))
+                elif oldest[0] == 'verification':
+                    cur.execute("DELETE FROM verification WHERE lean_hash = ?", (oldest[3],))
                 else:
-                    cur.execute("DELETE FROM verification WHERE lean_hash = ?", (v[0],))
-                    total -= int(v[2])
+                    cur.execute("DELETE FROM dependency WHERE target_hash = ? AND prev_hash = ?", oldest[3])
+                
+                total -= int(oldest[2])

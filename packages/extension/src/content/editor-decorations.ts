@@ -19,6 +19,7 @@ const STATUS_COLOR: Record<ClaimStatus, string> = {
 
 interface Decoration {
   claimId: string;
+  label?: string;
   line: number;
   status: ClaimStatus;
   el?: HTMLElement;
@@ -75,30 +76,30 @@ function renderOne(d: Decoration): void {
   if (!d.el) {
     d.el = document.createElement('div');
     d.el.style.position = 'absolute';
-    d.el.style.left = '2px';
-    d.el.style.width = '8px';
-    d.el.style.height = '8px';
+    d.el.style.left = '1px';
+    d.el.style.width = '10px';
+    d.el.style.height = '10px';
     d.el.style.borderRadius = '50%';
     d.el.style.transition = 'background-color 0.18s ease';
-    d.el.title = `${d.claimId} — ${d.status}`;
+    d.el.style.cursor = 'default';
     layer.appendChild(d.el);
   }
   d.el.style.top = `${y}px`;
   d.el.style.backgroundColor = STATUS_COLOR[d.status];
-  d.el.title = `${d.claimId} — ${d.status}`;
+  d.el.title = `${d.label ?? d.claimId} — ${d.status}`;
 }
 
 function renderAll(): void {
   for (const d of decorations) renderOne(d);
 }
 
-export function setDecorations(items: { claimId: string; line: number; status: ClaimStatus }[]): void {
+export function setDecorations(items: { claimId: string; label?: string; line: number; status: ClaimStatus }[]): void {
   // Replace the set; keep elements when possible to avoid flicker.
   const next: Decoration[] = items.map((i) => {
     const existing = decorations.find((d) => d.claimId === i.claimId);
     return existing
-      ? { ...existing, line: i.line, status: i.status }
-      : { claimId: i.claimId, line: i.line, status: i.status };
+      ? { ...existing, label: i.label, line: i.line, status: i.status }
+      : { claimId: i.claimId, label: i.label, line: i.line, status: i.status };
   });
   // Remove dropped elements.
   for (const d of decorations) {

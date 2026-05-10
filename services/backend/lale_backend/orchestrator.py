@@ -43,6 +43,7 @@ from .semantic_review import SemanticReviewer
 from .translator import MAX_ATTEMPTS, TranslateRequest, Translator, categorize_lean_error
 from .trust import policy_violations
 from .worthiness import MathlibWorthinessReviewer
+from .dependency_extractor import DependencyExtractor
 
 log = logging.getLogger(__name__)
 
@@ -67,30 +68,6 @@ def extract_label_refs(claim: Claim) -> list[str]:
     """Cheap heuristic: pull \\ref/\\eqref labels out of statement+proof."""
     text = (claim.statement_latex or "") + "\n" + (claim.proof_latex or "")
     return list(set(_LABEL_REF.findall(text)))
-
-
-def build_dep_graph(claims: list[Claim]) -> dict[str, list[str]]:
-    by_label: dict[str, str] = {}
-    for c in claims:
-        if c.label:
-            by_label[c.label] = c.id
-    deps: dict[str, list[str]] = {}
-    for c in claims:
-        refs = extract_label_refs(c)
-        deps[c.id] = [by_label[r] for r in refs if r in by_label and by_label[r] != c.id]
-    return deps
-
-
-def reachable_from(target: str, deps: dict[str, list[str]]) -> set[str]:
-    seen = {target}
-    q = deque([target])
-    while q:
-        n = q.popleft()
-        for d in deps.get(n, []):
-            if d not in seen:
-                seen.add(d)
-                q.append(d)
-    return seen
 
 
 def topo_levels(nodes: Iterable[str], deps: dict[str, list[str]]) -> list[list[str]]:
@@ -138,6 +115,7 @@ class Orchestrator:
         self.retriever = MathlibRetriever(settings)
         self.semantic_reviewer = SemanticReviewer(settings)
         self.worthiness_reviewer = MathlibWorthinessReviewer(settings, self.retriever)
+        self.dependency_extractor = DependencyExtractor(settings, cache)
         self._history: dict[UUID, list[SseEvent]] = {}
         self._states: dict[UUID, str] = {}
 
@@ -147,8 +125,42 @@ class Orchestrator:
     async def run(
         self, request_id: UUID, target_claim_id: str, claims: list[Claim]
     ) -> AsyncIterator[SseEvent]:
-        deps = build_dep_graph(claims)
-        reachable = reachable_from(target_claim_id, deps)
+        claims_by_id = {c.id: c for c in claims}
+        by_label = {c.label: c.id for c in claims if c.label}
+        
+        deps: dict[str, list[str]] = {}
+        reachable: set[str] = set()
+        queue = deque([target_claim_id])
+        
+        while queue:
+            curr_id = queue.popleft()
+            if curr_id in reachable:
+                continue
+            reachable.add(curr_id)
+            
+            curr_index = next((i for i, c in enumerate(claims) if c.id == curr_id), -1)
+            if curr_index == -1:
+                continue
+                
+            curr_claim = claims[curr_index]
+            
+            # 1. Heuristic dependencies from explicit \ref and \eqref
+            heuristic_deps = extract_label_refs(curr_claim)
+            heuristic_dep_ids = [by_label[r] for r in heuristic_deps if r in by_label and by_label[r] != curr_id]
+            
+            # 2. LLM dependencies
+            llm_dep_ids = await self.dependency_extractor.extract_dependencies(curr_index, claims)
+            
+            all_deps = list(set(heuristic_dep_ids + llm_dep_ids))
+            
+            # Filter to only claims that appear BEFORE this claim
+            valid_deps = [d for d in all_deps if d in claims_by_id and claims.index(claims_by_id[d]) < curr_index]
+            
+            deps[curr_id] = valid_deps
+            for d in valid_deps:
+                if d not in reachable:
+                    queue.append(d)
+        
         levels = topo_levels(reachable, deps)
         run = _Run(
             request_id=request_id,
