@@ -30,6 +30,7 @@ from .lean_server import LeanPool, compose_lean_source
 from .normalize import normalize_latex
 from .protocol import (
     Claim,
+    SseClaimDependencies,
     SseClaimFailed,
     SseClaimStatus,
     SseClaimVerified,
@@ -131,31 +132,38 @@ class Orchestrator:
         deps: dict[str, list[str]] = {}
         reachable: set[str] = set()
         queue = deque([target_claim_id])
-        
+        dep_events: list[SseClaimDependencies] = []
+
         while queue:
             curr_id = queue.popleft()
             if curr_id in reachable:
                 continue
             reachable.add(curr_id)
-            
+
             curr_index = next((i for i, c in enumerate(claims) if c.id == curr_id), -1)
             if curr_index == -1:
                 continue
-                
+
             curr_claim = claims[curr_index]
-            
+
             # 1. Heuristic dependencies from explicit \ref and \eqref
             heuristic_deps = extract_label_refs(curr_claim)
             heuristic_dep_ids = [by_label[r] for r in heuristic_deps if r in by_label and by_label[r] != curr_id]
-            
+
             # 2. LLM dependencies
             llm_dep_ids = await self.dependency_extractor.extract_dependencies(curr_index, claims)
-            
+            dep_events.append(SseClaimDependencies(
+                type="claimDependencies",
+                request_id=request_id,
+                claim_id=curr_id,
+                llm_dependency_ids=llm_dep_ids,
+            ))
+
             all_deps = list(set(heuristic_dep_ids + llm_dep_ids))
-            
+
             # Filter to only claims that appear BEFORE this claim
             valid_deps = [d for d in all_deps if d in claims_by_id and claims.index(claims_by_id[d]) < curr_index]
-            
+
             deps[curr_id] = valid_deps
             for d in valid_deps:
                 if d not in reachable:
@@ -185,6 +193,10 @@ class Orchestrator:
             ),
         ):
             yield ev
+
+        for dep_ev in dep_events:
+            async for ev in self._record(run, dep_ev):
+                yield ev
 
         for level_ids in levels:
             level_failed = False
@@ -270,6 +282,8 @@ class Orchestrator:
 
         Always pushes _LEVEL_DONE last so the run loop can count completions."""
         try:
+            if claim_id not in run.claims_by_id:
+                raise KeyError(f"claim {claim_id!r} not in claims_by_id")
             claim = run.claims_by_id[claim_id]
 
             await queue.put(
@@ -337,7 +351,7 @@ class Orchestrator:
 
                 violations = policy_violations(
                     tr.lean_code,
-                    strict_no_sorry=self.settings.strict_no_sorry,
+                    strict_no_sorry=False,  # Lean server detects sorry; post-Lean check at line 394 enforces it
                     strict_no_axioms=self.settings.strict_no_axioms,
                 )
                 if violations:
@@ -379,7 +393,8 @@ class Orchestrator:
 
                 if status == "sorry" and self.settings.strict_no_sorry:
                     status = "failed"
-                    lean_output = "Strict Lean policy violation: Lean accepted only with `sorry`."
+                    # Preserve Lean's actual output for the retry categorizer; append the policy reason.
+                    lean_output = (lean_output + "\nNote: proof accepted only with `sorry`; provide an actual proof.").strip()
 
                 if status in ("verified", "sorry"):
                     await queue.put(
@@ -425,6 +440,7 @@ class Orchestrator:
                                     claim_id=claim_id,
                                     elapsed_ms=elapsed_ms,
                                     cache_hit=cache_hit,
+                                    lean_code=tr.lean_code,
                                 ),
                             )
                         )
@@ -447,9 +463,7 @@ class Orchestrator:
                         )
                         return
                     status = "failed"
-                    lean_output = (
-                        f"Semantic review {review.verdict}: {review.explanation}"
-                    )
+                    lean_output = f"Semantic review {review.verdict}: {review.explanation}"
 
                 if attempt_no < MAX_ATTEMPTS - 1:
                     await queue.put(
@@ -502,9 +516,27 @@ class Orchestrator:
                             deepest_failed_claim_id=claim_id,
                             explanation=f"Lean verification failed: {status}",
                             lean_output=lean_output,
+                            lean_code=tr.lean_code,
                         ),
                     )
                 )
                 return
+        except Exception as exc:
+            log.exception("_verify_one crashed for %s", claim_id)
+            await queue.put(
+                (
+                    claim_id,
+                    SseClaimFailed(
+                        type="claimFailed",
+                        request_id=run.request_id,
+                        claim_id=claim_id,
+                        root_cause_category="other",
+                        deepest_failed_claim_id=claim_id,
+                        explanation=f"Internal error: {exc}",
+                        lean_output=None,
+                        lean_code=None,
+                    ),
+                )
+            )
         finally:
             await queue.put(_LEVEL_DONE)

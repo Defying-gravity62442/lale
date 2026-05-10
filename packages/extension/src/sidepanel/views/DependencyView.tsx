@@ -20,18 +20,19 @@ export function DependencyView() {
 
   const deps = useMemo(() => {
     if (!target) return [];
+    const ids = new Set<string>();
     const text = (target.statementLatex ?? '') + '\n' + (target.proofLatex ?? '');
-    const refs = new Set<string>();
-    for (const m of text.matchAll(LABEL_REF)) {
-      if (m[1]) refs.add(m[1]);
-    }
     const byLabel = new Map(claims.filter((c) => c.label).map((c) => [c.label!, c]));
-    const out = [];
-    for (const r of refs) {
-      const c = byLabel.get(r);
-      if (c && c.id !== target.id) out.push(c);
+    for (const m of text.matchAll(LABEL_REF)) {
+      if (m[1]) {
+        const c = byLabel.get(m[1]);
+        if (c && c.id !== target.id) ids.add(c.id);
+      }
     }
-    return out;
+    for (const depId of target.llmDependencyIds ?? []) {
+      if (depId !== target.id) ids.add(depId);
+    }
+    return [...ids].map((id) => claims.find((c) => c.id === id)).filter(Boolean) as typeof claims;
   }, [claims, target]);
 
   function handleNodeSelect(id: string) {
@@ -127,7 +128,7 @@ export function DependencyView() {
               className="rounded-md p-2.5 text-xs"
               style={{ backgroundColor: 'var(--status-verifying-bg)', color: 'var(--status-verifying)' }}
             >
-              <strong>AI dependency extraction:</strong> Additional mathematical dependencies are inferred by the LLM during verification.
+              <strong>AI dependency extraction:</strong> Dependencies inferred by the LLM appear above alongside explicit \ref commands after verification starts.
             </div>
           </div>
         </div>

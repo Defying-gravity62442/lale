@@ -478,15 +478,18 @@ class LeanPool:
                 self.settings.lean_project_dir,
                 warmup_timeout,
             )
-            for i in range(self.settings.lean_pool_size):
-                w = LspWorker(
+            workers = [
+                LspWorker(
                     idx=i,
                     project_dir=self.settings.lean_project_dir,
                     warmup_uri=warmup_uri,
                     warmup_text=warmup_text,
                     warmup_timeout=warmup_timeout,
                 )
-                await w.start()
+                for i in range(self.settings.lean_pool_size)
+            ]
+            await asyncio.gather(*[w.start() for w in workers])
+            for w in workers:
                 self._workers.append(w)
                 await self._available.put(w)
             self._started = True

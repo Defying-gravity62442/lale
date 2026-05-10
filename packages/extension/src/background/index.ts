@@ -193,6 +193,17 @@ async function handlePortRequest(port: chrome.runtime.Port, req: PortRequest): P
     inflightAborts.get(req.requestId)?.abort();
     inflightAborts.delete(req.requestId);
     await removeInflight(req.requestId);
+    // Reset any claims still in-progress so MainView doesn't show them as "translating".
+    if (activeTabId != null) {
+      const claims = await getClaimsForTab(activeTabId);
+      const reset = claims.map((c) =>
+        c.status === 'translating' || c.status === 'verifying'
+          ? { ...c, status: 'unverified' as const }
+          : c,
+      );
+      await setClaimsForTab(activeTabId, reset);
+      postToPanel({ type: 'claimsSnapshot', claims: reset });
+    }
     return;
   }
 }

@@ -186,6 +186,7 @@ export async function parseClaims(src: string): Promise<Claim[]> {
       hashLatex: await sha256Hex(combined),
       hashNormalized: await sha256Hex(normalized),
       status: 'unverified',
+      llmDependencyIds: [],
     });
 
     if (labelWarning) {

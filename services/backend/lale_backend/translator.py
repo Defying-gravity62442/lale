@@ -31,13 +31,15 @@ of mathematical claims (definitions, theorems, lemmas, corollaries, propositions
 syntax using Mathlib4.
 
 Rules:
-- Use Lean 4, not Lean 3.
-- Always import Mathlib.
-- Output JSON ONLY, with this exact shape:
-  {"lean_code": "<full lean source>", "imports": ["Mathlib"], "notes": "<one short sentence>"}
-- The lean_code MUST type-check on its own when prepended by `import Mathlib\\n`.
-- Prefer `theorem`/`lemma`/`def` over `example`. Use `by` blocks for proofs.
-- For axioms or unprovable claims, use `sorry` rather than guessing — but flag in `notes`.
+- Use Lean 4 syntax (not Lean 3). Import Mathlib.
+- Output JSON ONLY — no preamble, no prose, no code fences. Exact shape:
+  {"lean_code": "<full lean source>", "imports": ["Mathlib"], "notes": "<one sentence>"}
+- lean_code must type-check when prepended with `import Mathlib` and the provided context definitions. Do NOT redefine any definitions already present in the context.
+- Prefer `theorem`/`lemma`/`def` over `example`. Use `by` blocks for tactic proofs.
+- For unprovable claims: write the statement precisely, then `sorry` for the proof body.
+- Add `noncomputable` when the definition involves ℝ, ℂ, or other non-computable types.
+- Use `open` to bring Mathlib namespaces in scope; never invent non-existent qualified names.
+- Lean 4 syntax: `fun x => e` (not `fun x -> e`), `∀ x : T, P` (not `forall`), `→` (not `->`).
 """
 
 CATEGORY_INSTRUCTIONS: dict[RootCauseCategory, str] = {
@@ -300,9 +302,10 @@ class Translator:
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                {"role": "user", "content": user_prompt},
+            ],
         )
-        # Accept either text blocks or a single string.
         chunks: list[str] = []
         for block in msg.content:
             if getattr(block, "type", None) == "text":
@@ -311,11 +314,16 @@ class Translator:
 
     @staticmethod
     def _parse_response(raw: str) -> tuple[str, list[str], str, bool]:
-        # Be lenient: strip code fences if the model wrapped them despite instructions.
         trimmed = raw.strip()
-        if trimmed.startswith("```"):
-            trimmed = re.sub(r"^```(?:json)?\n?", "", trimmed)
-            trimmed = re.sub(r"\n?```$", "", trimmed)
+        # 1. Try to extract JSON from a code fence anywhere in the response.
+        fence_match = re.search(r"```(?:json)?\s*\n(.*?)\n```", trimmed, re.DOTALL)
+        if fence_match:
+            trimmed = fence_match.group(1).strip()
+        # 2. If the trimmed text doesn't start with '{', try to find a JSON object.
+        if not trimmed.startswith("{"):
+            json_match = re.search(r"\{.*\}", trimmed, re.DOTALL)
+            if json_match:
+                trimmed = json_match.group(0)
         try:
             obj = json.loads(trimmed)
         except json.JSONDecodeError:

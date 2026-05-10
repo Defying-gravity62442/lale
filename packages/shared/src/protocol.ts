@@ -64,6 +64,7 @@ export const Claim = z.object({
   hashLatex: z.string(),
   hashNormalized: z.string(),
   status: ClaimStatus.default('unverified'),
+  llmDependencyIds: z.array(z.string()).default([]),
 });
 export type Claim = z.infer<typeof Claim>;
 
@@ -102,6 +103,7 @@ export const SseEvent = z.discriminatedUnion('type', [
     claimId: z.string(),
     elapsedMs: z.number().int().nonnegative(),
     cacheHit: z.boolean(),
+    leanCode: z.string().optional(),
   }),
   z.object({
     type: z.literal('mathlibWorthiness'),
@@ -123,11 +125,18 @@ export const SseEvent = z.discriminatedUnion('type', [
     deepestFailedClaimId: z.string(),
     explanation: z.string(),
     leanOutput: z.string().optional(),
+    leanCode: z.string().optional(),
   }),
   z.object({
     type: z.literal('orchestratorFinished'),
     requestId: z.string().uuid(),
     overall: z.enum(['verified', 'failed', 'partial']),
+  }),
+  z.object({
+    type: z.literal('claimDependencies'),
+    requestId: z.string().uuid(),
+    claimId: z.string(),
+    llmDependencyIds: z.array(z.string()),
   }),
 ]);
 export type SseEvent = z.infer<typeof SseEvent>;

@@ -71,6 +71,7 @@ class Claim(_Base):
     hash_latex: str
     hash_normalized: str
     status: ClaimStatus = "unverified"
+    llm_dependency_ids: list[str] = Field(default_factory=list)
 
 
 # ---------- /verify_paper ----------
@@ -113,6 +114,7 @@ class SseClaimVerified(_Base):
     claim_id: str
     elapsed_ms: int = Field(ge=0)
     cache_hit: bool
+    lean_code: str | None = None
 
 
 class SseMathlibWorthiness(_Base):
@@ -136,6 +138,7 @@ class SseClaimFailed(_Base):
     deepest_failed_claim_id: str
     explanation: str
     lean_output: str | None = None
+    lean_code: str | None = None
 
 
 class SseOrchestratorFinished(_Base):
@@ -144,13 +147,21 @@ class SseOrchestratorFinished(_Base):
     overall: Literal["verified", "failed", "partial"]
 
 
+class SseClaimDependencies(_Base):
+    type: Literal["claimDependencies"]
+    request_id: UUID
+    claim_id: str
+    llm_dependency_ids: list[str]
+
+
 SseEvent = Annotated[
     SseOrchestratorStarted
     | SseClaimStatus
     | SseClaimVerified
     | SseMathlibWorthiness
     | SseClaimFailed
-    | SseOrchestratorFinished,
+    | SseOrchestratorFinished
+    | SseClaimDependencies,
     Field(discriminator="type"),
 ]
 

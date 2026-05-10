@@ -163,7 +163,7 @@ export const useStore = create<State>((set, get) => {
       persist(get());
     },
     applySse: (ev) => {
-      const { byRequest } = get();
+      const { byRequest, claims } = get();
       const prev = byRequest[ev.requestId] ?? {
         requestId: ev.requestId,
         targetClaimId: ev.type === 'orchestratorStarted' ? ev.targetClaimId : '',
@@ -186,9 +186,30 @@ export const useStore = create<State>((set, get) => {
             ? 'success'
             : 'failure'
           : undefined;
+
+      let updatedClaims = claims;
+      if (ev.type === 'claimDependencies') {
+        updatedClaims = claims.map((c) =>
+          c.id === ev.claimId ? { ...c, llmDependencyIds: ev.llmDependencyIds } : c,
+        );
+      } else if (ev.type === 'claimStatus') {
+        updatedClaims = claims.map((c) =>
+          c.id === ev.claimId ? { ...c, status: ev.status } : c,
+        );
+      } else if (ev.type === 'claimVerified') {
+        updatedClaims = claims.map((c) =>
+          c.id === ev.claimId ? { ...c, status: 'verified' as const } : c,
+        );
+      } else if (ev.type === 'claimFailed') {
+        updatedClaims = claims.map((c) =>
+          c.id === ev.claimId ? { ...c, status: 'failed' as const } : c,
+        );
+      }
+
       set({
         byRequest: { ...byRequest, [ev.requestId]: next },
         activeRequestId: ev.requestId,
+        claims: updatedClaims,
         ...(view ? { view } : {}),
       });
       persist(get());

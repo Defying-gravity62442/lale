@@ -5,6 +5,40 @@ import { ClaimTypePill } from '../components/ClaimTypePill';
 import { StatusBadge } from '../components/StatusBadge';
 import type { Claim } from '@lale/shared';
 
+// ── LeanCodeBlock ─────────────────────────────────────────────────────────────
+
+function LeanCodeBlock({ code }: { code: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-0.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span
+          className="inline-block transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'none' }}
+        >
+          ▶
+        </span>
+        Lean 4
+      </button>
+      {open ? (
+        <pre
+          className="mt-1 px-2 py-1.5 rounded text-[10px] leading-relaxed overflow-x-auto whitespace-pre"
+          style={{
+            backgroundColor: 'var(--muted)',
+            color: 'var(--foreground)',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {code}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 // ── main component ────────────────────────────────────────────────────────────
 
 const PLAN_STEPS = [
@@ -54,15 +88,18 @@ export function VerifyingView() {
   }, [requestId]);
 
   const perClaim = useMemo(() => {
-    const out = new Map<string, { status: string; lastDetail?: string; cacheHit?: boolean }>();
+    const out = new Map<string, { status: string; lastDetail?: string; cacheHit?: boolean; leanCode?: string }>();
     if (!run) return out;
     for (const ev of run.events) {
       if (ev.type === 'claimStatus') {
-        out.set(ev.claimId, { status: ev.status, lastDetail: ev.detail });
+        const prev = out.get(ev.claimId);
+        out.set(ev.claimId, { ...prev, status: ev.status, lastDetail: ev.detail });
       } else if (ev.type === 'claimVerified') {
-        out.set(ev.claimId, { status: 'verified', cacheHit: ev.cacheHit });
+        const prev = out.get(ev.claimId);
+        out.set(ev.claimId, { ...prev, status: 'verified', cacheHit: ev.cacheHit, leanCode: ev.leanCode });
       } else if (ev.type === 'claimFailed') {
-        out.set(ev.claimId, { status: 'failed' });
+        const prev = out.get(ev.claimId);
+        out.set(ev.claimId, { ...prev, status: 'failed', leanCode: ev.leanCode });
       }
     }
     return out;
@@ -251,10 +288,13 @@ export function VerifyingView() {
                         </div>
                         {isActive ? (
                           <p className="text-[10px] pl-1" style={{ color: 'var(--status-verifying)' }}>
-                            {CLAIM_STATUS_LABEL[st] ?? st}
+                            {info?.lastDetail ?? CLAIM_STATUS_LABEL[st] ?? st}
                           </p>
                         ) : info?.lastDetail ? (
                           <p className="text-[10px] text-muted-foreground pl-1">{info.lastDetail}</p>
+                        ) : null}
+                        {info?.leanCode ? (
+                          <LeanCodeBlock code={info.leanCode} />
                         ) : null}
                       </li>
                     );

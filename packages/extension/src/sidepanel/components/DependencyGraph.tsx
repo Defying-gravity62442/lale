@@ -20,6 +20,9 @@ const TYPE_SHORT: Record<ClaimType, string> = {
   example: 'EX',
   claim: 'CLM',
   conjecture: 'CONJ',
+  exercise: 'EXR',
+  problem: 'PROB',
+  question: 'Q',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -39,6 +42,9 @@ function parseRefs(claim: Claim, byLabel: Map<string, string>): string[] {
       const depId = byLabel.get(m[1]);
       if (depId && depId !== claim.id) ids.add(depId);
     }
+  }
+  for (const depId of claim.llmDependencyIds ?? []) {
+    if (depId !== claim.id) ids.add(depId);
   }
   return [...ids];
 }
