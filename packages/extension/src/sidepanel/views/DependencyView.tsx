@@ -33,8 +33,16 @@ export function DependencyView() {
 
   if (!target) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-        Claim not found.
+      <div className="flex-1 flex flex-col">
+        <div className="px-4 py-3 border-b border-border bg-card shrink-0">
+          <Button size="sm" variant="ghost" onClick={() => setView('main')}>
+            <ArrowLeft size={14} /> Back
+          </Button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-2">
+          <p className="text-sm text-muted-foreground">Claim not found in current document.</p>
+          <Button variant="secondary" onClick={() => setView('main')}>View all claims</Button>
+        </div>
       </div>
     );
   }

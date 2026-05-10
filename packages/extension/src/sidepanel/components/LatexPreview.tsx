@@ -37,7 +37,7 @@ function textToHtml(src: string): string {
 
     // Read alphabetic command name.
     let j = i;
-    while (j < src.length && /[a-zA-Z]/.test(src[j])) j++;
+    while (j < src.length && /[a-zA-Z]/.test(src[j] ?? '')) j++;
     const cmd = src.slice(i, j);
     i = j;
     while (i < src.length && src[i] === ' ') i++; // skip trailing space

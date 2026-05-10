@@ -185,7 +185,16 @@ export const useStore = create<State>((set, get) => {
       persist(get());
     },
     receiveSnapshot: (claims) => {
-      set({ claims });
+      const { view, selectedClaimId } = get();
+      const claimExists = selectedClaimId != null && claims.some((c) => c.id === selectedClaimId);
+      // If the user switched papers while on a claim-specific view, navigate back to main
+      // so they see the new paper's claims instead of a dead-end "Claim not found" screen.
+      if (!claimExists && (view === 'dependency' || view === 'success' || view === 'failure')) {
+        set({ claims, view: 'main', selectedClaimId: null });
+        persist(get());
+      } else {
+        set({ claims });
+      }
     },
     setError: (msg) => set({ errorMessage: msg }),
   };
