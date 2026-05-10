@@ -2,6 +2,7 @@ import type { Claim } from '@lale/shared';
 import { ChevronRight } from 'lucide-react';
 import { ClaimTypePill } from './ClaimTypePill';
 import { StatusBadge } from './StatusBadge';
+import { LatexPreview } from './LatexPreview';
 
 interface Props {
   claim: Claim;
@@ -37,8 +38,8 @@ export function ClaimRow({ claim, onSelect, highlighted }: Props) {
             </code>
           ) : null}
         </div>
-        <div className="text-xs text-foreground/90 line-clamp-2">
-          {claim.statementLatex}
+        <div className="text-xs text-foreground/90 line-clamp-2 [&_.katex]:text-[0.85em]">
+          <LatexPreview latex={claim.statementLatex} />
         </div>
       </div>
       <ChevronRight size={14} className="text-muted-foreground shrink-0 mt-1" />

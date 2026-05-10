@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@lale/shared": "workspace:*",
+    "katex": "^0.16.45",
     "lucide-react": "^0.456.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

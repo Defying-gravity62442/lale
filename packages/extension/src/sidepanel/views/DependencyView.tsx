@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { Button } from '../components/Button';
 import { ClaimTypePill } from '../components/ClaimTypePill';
 import { StatusBadge } from '../components/StatusBadge';
+import { LatexPreview } from '../components/LatexPreview';
 
 const LABEL_REF = /\\(?:ref|eqref|cref|Cref)\{([^}]+)\}/g;
 
@@ -55,7 +56,9 @@ export function DependencyView() {
           ) : null}
           <StatusBadge status={target.status} />
         </div>
-        <div className="text-sm leading-snug">{target.statementLatex}</div>
+        <div className="text-sm leading-snug">
+          <LatexPreview latex={target.statementLatex} />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
