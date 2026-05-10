@@ -26,5 +26,9 @@ export default defineManifest({
       resources: ['src/sidepanel/index.html'],
       matches: ['<all_urls>'],
     },
+    {
+      resources: ['main-world.js'],
+      matches: ['https://www.overleaf.com/*'],
+    },
   ],
 });

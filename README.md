@@ -84,31 +84,9 @@ Install JS dependencies once:
 pnpm install
 ```
 
-For extension development, keep Vite running while the extension is loaded:
-
-```sh
-pnpm --filter @lale/extension dev
-```
-
-@crxjs writes a dev-mode extension to `packages/extension/dist`. Then in Chrome:
-
-1. `chrome://extensions` → enable Developer Mode
-2. **Load unpacked** → select `packages/extension/dist`
-3. Open an Overleaf project (`https://www.overleaf.com/project/...`)
-4. Click the lale toolbar action to open the side panel
-
-Important: the dev-mode service worker imports modules from Vite at `http://localhost:5174`.
-If you load `packages/extension/dist` after stopping Vite, Chrome may show
-`Service worker registration failed. Status code: 3`.
-
-For a standalone extension bundle, build first and then load the same `dist` directory:
-
 ```sh
 pnpm --filter @lale/extension build
 ```
-
-The production build rewrites the service worker loader to import bundled local assets instead of
-`localhost:5174`.
 
 ### End-to-end test
 

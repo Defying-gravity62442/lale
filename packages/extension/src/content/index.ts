@@ -14,29 +14,49 @@ import { type ClaimStatus, type ContentMessage } from '@lale/shared';
 import { parseClaims } from './parser';
 import { setClaimStatus, setDecorations } from './editor-decorations';
 
+// Inject into the main world so we can access the CodeMirror instance directly.
+// Use a variable (not a string literal) so CRXJS's static analysis doesn't treat
+// main-world.js as a content-script entry and generate a broken MAIN-world loader.
+const mainWorldResource = 'main-world.js';
+const script = document.createElement('script');
+script.src = chrome.runtime.getURL(mainWorldResource);
+document.head.appendChild(script);
+
 const DEBOUNCE_MS = 1500;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let mo: MutationObserver | null = null;
 
-function getDocText(): string | null {
-  // CM6 editor view is exposed via .cm-editor at the DOM root. We can also walk the React
-  // internal but that's even more fragile. Fall back to .cm-content text content.
-  const editor = document.querySelector('.cm-editor');
-  if (!editor) return null;
-  // Prefer cmView.view.state.doc if reachable (more reliable than concatenating .cm-line text,
-  // since CM virtualizes long docs).
-  const anyEditor = editor as unknown as { cmView?: { view?: { state?: { doc?: { toString(): string } } } } };
-  const doc = anyEditor.cmView?.view?.state?.doc;
-  if (doc && typeof doc.toString === 'function') {
-    return doc.toString();
-  }
-  // Best-effort fallback.
-  return editor.querySelector('.cm-content')?.textContent ?? null;
+function requestDocText(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const nonce = Math.random().toString(36).substring(7);
+    
+    const listener = (event: MessageEvent) => {
+      if (
+        event.source === window &&
+        event.data?.type === 'LALE_DOC_TEXT_REPLY' &&
+        event.data?.nonce === nonce
+      ) {
+        window.removeEventListener('message', listener);
+        if (timeout) clearTimeout(timeout);
+        resolve(event.data.text ?? null);
+      }
+    };
+    
+    window.addEventListener('message', listener);
+    window.postMessage({ type: 'LALE_DOC_TEXT_REQUEST', nonce }, '*');
+    
+    // Fallback timeout in case the main world script fails to respond
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', listener);
+      resolve(null);
+    }, 1000);
+  });
 }
 
 async function parseAndPush(): Promise<void> {
-  const src = getDocText();
+  const src = await requestDocText();
   if (src == null) return;
+  console.log('[lale] raw LaTeX doc:\n', src);
   const claims = await parseClaims(src);
 
   setDecorations(
