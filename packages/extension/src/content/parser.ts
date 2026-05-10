@@ -19,6 +19,9 @@ const CLAIM_KINDS: ClaimType[] = [
   'example',
   'claim',
   'conjecture',
+  'exercise',
+  'problem',
+  'question',
 ];
 
 // Aliases and starred variants → canonical ClaimType.
@@ -29,8 +32,12 @@ const KIND_ALIASES: Record<string, ClaimType> = {
   prop: 'proposition',
   cor: 'corollary',
   defn: 'definition',
-  // proof
+  // proof (and solution/answer as proof-equivalents in problem sets)
   pf: 'proof',
+  solution: 'proof',
+  sol: 'proof',
+  answer: 'proof',
+  ans: 'proof',
   // remark
   rem: 'remark',
   rmk: 'remark',
@@ -38,6 +45,12 @@ const KIND_ALIASES: Record<string, ClaimType> = {
   ex: 'example',
   // conjecture
   conj: 'conjecture',
+  // exercise / problem / question abbreviations
+  exer: 'exercise',
+  exc: 'exercise',
+  prob: 'problem',
+  prb: 'problem',
+  quest: 'question',
   // starred variants
   'theorem*': 'theorem',
   'lemma*': 'lemma',
@@ -49,15 +62,23 @@ const KIND_ALIASES: Record<string, ClaimType> = {
   'example*': 'example',
   'claim*': 'claim',
   'conjecture*': 'conjecture',
+  'exercise*': 'exercise',
+  'problem*': 'problem',
+  'question*': 'question',
+  'solution*': 'proof',
 };
 
 // All environment names to match (escape * for the regex alternation).
 const ALL_KINDS = [...CLAIM_KINDS, ...Object.keys(KIND_ALIASES)];
 const KIND_RE = ALL_KINDS.map((k) => k.replace('*', '\\*')).join('|');
+// Group 1: environment name. Group 2: optional argument [like 2.3]. Group 3: body.
 const BLOCK_RE = new RegExp(
-  String.raw`\\begin\{(` + KIND_RE + String.raw`)\}([\s\S]*?)\\end\{\1\}`,
+  String.raw`\\begin\{(` + KIND_RE + String.raw`)\}(?:\[([^\]]*)\])?([\s\S]*?)\\end\{\1\}`,
   'g',
 );
+
+// Environments treated as "solution" (attached to the preceding claim as proofLatex).
+const SOLUTION_RE = /^\s*\\begin\{(proof|solution|sol|answer|ans|solution\*)\}([\s\S]*?)\\end\{\1\}/;
 const LABEL_RE = /\\label\{([^}]+)\}/;
 
 async function sha256Hex(s: string): Promise<string> {
@@ -105,12 +126,14 @@ export async function parseClaims(src: string): Promise<Claim[]> {
   for (const m of src.matchAll(BLOCK_RE)) {
     const rawKind = m[1] ?? '';
     const kind: ClaimType = KIND_ALIASES[rawKind] ?? (rawKind as ClaimType);
-    const body = m[2] ?? '';
+    // m[2] = optional argument e.g. [2.3] or [Problem 5.1(a)], m[3] = body
+    const number = m[2]?.trim() || undefined;
+    const body = m[3] ?? '';
     if (m.index === undefined) continue;
     const matchStart = m.index;
     const matchEnd = matchStart + m[0].length;
 
-    // Skip proof blocks that were already consumed as proofLatex of a preceding claim.
+    // Skip proof/solution blocks already consumed as proofLatex of a preceding claim.
     if (kind === 'proof' && attachedProofStarts.has(matchStart)) continue;
 
     indexByKind[kind] = (indexByKind[kind] ?? 0) + 1;
@@ -131,17 +154,15 @@ export async function parseClaims(src: string): Promise<Claim[]> {
       id = `${kind}:${indexByKind[kind]}`;
     }
 
-    // Find a proof immediately following (allowing whitespace only).
-    // Only attach proofs to non-proof claim types to avoid nesting.
+    // Find a proof/solution immediately following (whitespace only between).
+    // Attach to non-proof claim types to avoid nesting.
     let proofText: string | undefined;
     const after = src.slice(matchEnd);
-    const proofGap = kind !== 'proof'
-      ? after.match(/^\s*\\begin\{proof\}([\s\S]*?)\\end\{proof\}/)
-      : null;
+    const proofGap = kind !== 'proof' ? after.match(SOLUTION_RE) : null;
     if (proofGap) {
-      proofText = proofGap[1];
-      // Record where this proof starts in the source so we skip it as a standalone claim.
-      const proofAbsStart = matchEnd + after.indexOf('\\begin{proof}');
+      proofText = proofGap[2];
+      const proofEnvName = proofGap[1] ?? 'proof';
+      const proofAbsStart = matchEnd + after.indexOf(`\\begin{${proofEnvName}}`);
       attachedProofStarts.add(proofAbsStart);
     }
 
@@ -156,6 +177,7 @@ export async function parseClaims(src: string): Promise<Claim[]> {
     out.push({
       id,
       type: kind,
+      number,
       label: labelMatch?.[1],
       startLine,
       endLine,

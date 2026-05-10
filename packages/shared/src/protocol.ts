@@ -13,6 +13,9 @@ export const ClaimType = z.enum([
   'example',
   'claim',
   'conjecture',
+  'exercise',
+  'problem',
+  'question',
 ]);
 export type ClaimType = z.infer<typeof ClaimType>;
 

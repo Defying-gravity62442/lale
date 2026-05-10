@@ -11,6 +11,9 @@ const SHORT: Record<ClaimType, string> = {
   example: 'EX',
   claim: 'CLM',
   conjecture: 'CONJ',
+  exercise: 'EXER',
+  problem: 'PROB',
+  question: 'QST',
 };
 
 export function ClaimTypePill({ type }: { type: ClaimType }) {

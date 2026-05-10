@@ -34,6 +34,7 @@ class _Base(BaseModel):
 ClaimType = Literal[
     "definition", "theorem", "lemma", "corollary", "proposition",
     "proof", "remark", "example", "claim", "conjecture",
+    "exercise", "problem", "question",
 ]
 ClaimStatus = Literal["unverified", "translating", "verifying", "verified", "failed", "sorry"]
 RootCauseCategory = Literal[

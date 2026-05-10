@@ -55,7 +55,7 @@ export function DependencyView() {
             <ArrowLeft size={14} /> Back
           </Button>
         </div>
-        <div className="flex items-start gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2">
           <ClaimTypePill type={target.type} />
           {target.label ? (
             <code className="text-[11px] text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>

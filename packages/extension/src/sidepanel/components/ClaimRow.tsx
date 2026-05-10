@@ -14,20 +14,21 @@ export function ClaimRow({ claim, onSelect, highlighted }: Props) {
   return (
     <button
       onClick={() => onSelect(claim)}
-      className={`w-full px-3 py-2.5 border-b border-border text-left flex items-start gap-2 hover:bg-accent transition-colors ${
+      className={`w-full px-3 py-2.5 border-b border-border text-left flex items-center gap-2 hover:bg-accent transition-colors ${
         highlighted ? 'bg-accent' : ''
       }`}
     >
-      <div className="flex flex-col items-center gap-1 pt-0.5">
-        <ClaimTypePill type={claim.type} />
-        {claim.number ? (
-          <span className="text-[10px] text-muted-foreground" style={{ fontFamily: 'var(--font-mono)' }}>
-            {claim.number}
-          </span>
-        ) : null}
-      </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+          <ClaimTypePill type={claim.type} />
+          {claim.number ? (
+            <span
+              className="text-[10px] text-muted-foreground"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            >
+              {claim.number}
+            </span>
+          ) : null}
           <StatusBadge status={claim.status} />
           {claim.label ? (
             <code
@@ -38,11 +39,11 @@ export function ClaimRow({ claim, onSelect, highlighted }: Props) {
             </code>
           ) : null}
         </div>
-        <div className="text-xs text-foreground/90 line-clamp-2 [&_.katex]:text-[0.85em]">
+        <div className="text-xs text-foreground/90 line-clamp-2">
           <LatexPreview latex={claim.statementLatex} />
         </div>
       </div>
-      <ChevronRight size={14} className="text-muted-foreground shrink-0 mt-1" />
+      <ChevronRight size={14} className="text-muted-foreground shrink-0" />
     </button>
   );
 }
