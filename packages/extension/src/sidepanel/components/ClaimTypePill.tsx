@@ -6,6 +6,11 @@ const SHORT: Record<ClaimType, string> = {
   definition: 'DEF',
   corollary: 'COR',
   proposition: 'PROP',
+  proof: 'PRF',
+  remark: 'RMK',
+  example: 'EX',
+  claim: 'CLM',
+  conjecture: 'CONJ',
 };
 
 export function ClaimTypePill({ type }: { type: ClaimType }) {

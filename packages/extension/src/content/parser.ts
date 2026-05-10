@@ -14,9 +14,46 @@ const CLAIM_KINDS: ClaimType[] = [
   'lemma',
   'corollary',
   'proposition',
+  'proof',
+  'remark',
+  'example',
+  'claim',
+  'conjecture',
 ];
 
-const KIND_RE = CLAIM_KINDS.join('|');
+// Aliases and starred variants → canonical ClaimType.
+const KIND_ALIASES: Record<string, ClaimType> = {
+  // theorem-like abbreviations
+  thm: 'theorem',
+  lem: 'lemma',
+  prop: 'proposition',
+  cor: 'corollary',
+  defn: 'definition',
+  // proof
+  pf: 'proof',
+  // remark
+  rem: 'remark',
+  rmk: 'remark',
+  // example
+  ex: 'example',
+  // conjecture
+  conj: 'conjecture',
+  // starred variants
+  'theorem*': 'theorem',
+  'lemma*': 'lemma',
+  'proposition*': 'proposition',
+  'corollary*': 'corollary',
+  'definition*': 'definition',
+  'proof*': 'proof',
+  'remark*': 'remark',
+  'example*': 'example',
+  'claim*': 'claim',
+  'conjecture*': 'conjecture',
+};
+
+// All environment names to match (escape * for the regex alternation).
+const ALL_KINDS = [...CLAIM_KINDS, ...Object.keys(KIND_ALIASES)];
+const KIND_RE = ALL_KINDS.map((k) => k.replace('*', '\\*')).join('|');
 const BLOCK_RE = new RegExp(
   String.raw`\\begin\{(` + KIND_RE + String.raw`)\}([\s\S]*?)\\end\{\1\}`,
   'g',
@@ -61,13 +98,20 @@ export async function parseClaims(src: string): Promise<Claim[]> {
   const out: Claim[] = [];
   const indexByKind: Record<string, number> = {};
   const seenLabels = new Set<string>();
+  // Track absolute start positions of proof blocks already attached to a theorem-like claim,
+  // so we don't also emit them as standalone proof claims.
+  const attachedProofStarts = new Set<number>();
 
   for (const m of src.matchAll(BLOCK_RE)) {
-    const kind = m[1] as ClaimType;
+    const rawKind = m[1] ?? '';
+    const kind: ClaimType = KIND_ALIASES[rawKind] ?? (rawKind as ClaimType);
     const body = m[2] ?? '';
     if (m.index === undefined) continue;
     const matchStart = m.index;
     const matchEnd = matchStart + m[0].length;
+
+    // Skip proof blocks that were already consumed as proofLatex of a preceding claim.
+    if (kind === 'proof' && attachedProofStarts.has(matchStart)) continue;
 
     indexByKind[kind] = (indexByKind[kind] ?? 0) + 1;
     const labelMatch = body.match(LABEL_RE);
@@ -88,11 +132,17 @@ export async function parseClaims(src: string): Promise<Claim[]> {
     }
 
     // Find a proof immediately following (allowing whitespace only).
+    // Only attach proofs to non-proof claim types to avoid nesting.
     let proofText: string | undefined;
     const after = src.slice(matchEnd);
-    const proofGap = after.match(/^\s*\\begin\{proof\}([\s\S]*?)\\end\{proof\}/);
+    const proofGap = kind !== 'proof'
+      ? after.match(/^\s*\\begin\{proof\}([\s\S]*?)\\end\{proof\}/)
+      : null;
     if (proofGap) {
       proofText = proofGap[1];
+      // Record where this proof starts in the source so we skip it as a standalone claim.
+      const proofAbsStart = matchEnd + after.indexOf('\\begin{proof}');
+      attachedProofStarts.add(proofAbsStart);
     }
 
     const statementLatex = body.trim();

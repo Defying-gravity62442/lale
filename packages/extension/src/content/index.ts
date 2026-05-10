@@ -29,7 +29,7 @@ let mo: MutationObserver | null = null;
 function requestDocText(): Promise<string | null> {
   return new Promise((resolve) => {
     const nonce = Math.random().toString(36).substring(7);
-    
+
     const listener = (event: MessageEvent) => {
       if (
         event.source === window &&
@@ -41,10 +41,10 @@ function requestDocText(): Promise<string | null> {
         resolve(event.data.text ?? null);
       }
     };
-    
+
     window.addEventListener('message', listener);
     window.postMessage({ type: 'LALE_DOC_TEXT_REQUEST', nonce }, '*');
-    
+
     // Fallback timeout in case the main world script fails to respond
     const timeout = setTimeout(() => {
       window.removeEventListener('message', listener);

@@ -31,7 +31,10 @@ class _Base(BaseModel):
 
 # ---------- Primitives ----------
 
-ClaimType = Literal["definition", "theorem", "lemma", "corollary", "proposition"]
+ClaimType = Literal[
+    "definition", "theorem", "lemma", "corollary", "proposition",
+    "proof", "remark", "example", "claim", "conjecture",
+]
 ClaimStatus = Literal["unverified", "translating", "verifying", "verified", "failed", "sorry"]
 RootCauseCategory = Literal[
     "unknownIdentifier",

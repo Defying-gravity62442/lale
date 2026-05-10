@@ -2,7 +2,18 @@ import { z } from 'zod';
 
 // ---------- Primitives ----------
 
-export const ClaimType = z.enum(['definition', 'theorem', 'lemma', 'corollary', 'proposition']);
+export const ClaimType = z.enum([
+  'definition',
+  'theorem',
+  'lemma',
+  'corollary',
+  'proposition',
+  'proof',
+  'remark',
+  'example',
+  'claim',
+  'conjecture',
+]);
 export type ClaimType = z.infer<typeof ClaimType>;
 
 export const ClaimStatus = z.enum([
