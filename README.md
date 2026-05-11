@@ -45,7 +45,8 @@ does NOT write `.lean` files into this tree.
 ### Backend
 
 ```sh
-cd services/backend
+cd services/backen
+cp .env.example .env   # make sure to set CLAUDE_API_KEY
 uv sync
 uv run uvicorn lale_backend.api:app --port 8765 --reload
 ```
